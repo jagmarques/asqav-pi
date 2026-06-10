@@ -18,16 +18,14 @@ References, cold-verified:
 
 ## Install
 
-Not yet published to npm. Pi installs packages straight from GitHub:
+```bash
+pi install npm:@asqav/pi
+```
+
+Pi can also install straight from GitHub:
 
 ```bash
 pi install git:github.com/jagmarques/asqav-pi
-```
-
-Once published, the install will be:
-
-```bash
-pi install npm:@asqav/pi
 ```
 
 Pi runs `npm install` for the package, which pulls in the `@asqav/sdk` dependency automatically.
@@ -55,7 +53,7 @@ When embedding pi via its SDK, or when you want full control over the agent iden
 
 ```ts
 import { init, Agent } from "@asqav/sdk";
-import { registerAsqav } from "@asqav/pi/extensions/asqav.js";
+import { registerAsqav } from "@asqav/pi/extensions/asqav.ts";
 
 init({ apiKey: process.env.ASQAV_API_KEY! });
 const agent = await Agent.create({ name: "ci-coding-agent" });
