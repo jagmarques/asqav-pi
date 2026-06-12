@@ -6,6 +6,8 @@
 
 Stop a rogue agent before it acts, and prove what it tried. This package is an extension for the [pi coding agent](https://pi.dev) that guards pi's tool calls with Asqav. It signs the intended tool call before the tool runs, and blocks the call when Asqav refuses. Every `bash`, `write`, and `edit` your coding agent attempts becomes a tamper-evident receipt, signed server-side with NIST FIPS 204 ML-DSA-65. The agent never holds the signing key, so it cannot forge the record.
 
+Asqav governs the agents you wire through it. An agent that never routes through the governed path produces no receipt and is not detected.
+
 This is a pre-execution gate. The extension subscribes to pi's `tool_call` event, which fires before the tool executes and can block, signs `tool:start`, and returns a block when a call is refused so the tool never runs. After execution it signs a matching `tool:end` receipt with the outcome.
 
 ## How it hooks in
