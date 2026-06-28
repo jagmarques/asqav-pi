@@ -51,13 +51,14 @@ export ASQAV_API_KEY="sk_..."
 pi
 ```
 
-Every tool call pi makes now produces signed `tool:start` and `tool:end` receipts through the Asqav API. Without `ASQAV_API_KEY` the extension logs once and stays inactive, so pi keeps working.
+Every tool call pi makes now produces signed `tool:start` and `tool:end` receipts through the Asqav API. Governance is intended once the extension loads, so if it cannot initialize (no `ASQAV_API_KEY`, or the signer is unreachable at startup) it fails closed and blocks every tool call rather than letting pi run ungoverned. Opt out deliberately with `ASQAV_FAIL_OPEN=true`.
 
 Environment options:
 
 - `ASQAV_AGENT_NAME`: the agent name on receipts. Defaults to `pi`.
 - `ASQAV_OBSERVE_ONLY=true`: sign everything, never block.
-- `ASQAV_FAIL_CLOSED=true`: block tools when Asqav is unreachable. The default is fail-open so an unreachable Asqav never breaks a working coding agent. A real deny still blocks regardless.
+- `ASQAV_FAIL_CLOSED=true`: block tools when Asqav is unreachable mid-session (a signing transport error). The default here is fail-open so a transient outage never breaks a working coding agent. A real deny always blocks regardless.
+- `ASQAV_FAIL_OPEN=true` (or `ASQAV_FAIL_CLOSED=false`): deliberate dev opt-out that restores the old inactive/allow behavior when init fails. Pi runs ungoverned, so use it only when you know that is what you want.
 
 ## Programmatic use
 

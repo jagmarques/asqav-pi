@@ -215,24 +215,54 @@ export function registerAsqav(pi: PiExtensionAPI, options: AsqavPiOptions): void
   }
 }
 
+/** Reason returned for every tool call when governance was intended but init failed. */
+export const INIT_FAIL_CLOSED_REASON =
+  "asqav governance could not initialize (e.g. missing ASQAV_API_KEY or signer unreachable); failing closed - no tool runs ungoverned";
+
+// True when an init failure should block every tool rather than run pi
+// ungoverned. Default on; opt out with ASQAV_FAIL_OPEN/ASQAV_FAIL_CLOSED.
+export function initFailClosedInEffect(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (env.ASQAV_FAIL_OPEN === "true") return false;
+  if (env.ASQAV_FAIL_CLOSED === "false") return false;
+  return true;
+}
+
+/** Register a tool_call handler that blocks every tool when init failed. */
+export function registerInitFailClosed(pi: PiExtensionAPI): void {
+  pi.on("tool_call", (): ToolCallHandlerResult => {
+    return { block: true, reason: INIT_FAIL_CLOSED_REASON };
+  });
+}
+
 /**
  * Default pi extension entry point. Pi auto-discovers this file via the
  * package's `pi.extensions` manifest and calls it with the extension API.
  *
  * Configuration comes from the environment:
- * - `ASQAV_API_KEY` (required): your Asqav API key. Without it the
- *   extension logs once and stays inactive, so pi keeps working.
+ * - `ASQAV_API_KEY` (required): your Asqav API key. Without it, init fails;
+ *   by default that fails closed and blocks every tool call.
  * - `ASQAV_AGENT_NAME` (optional): the agent name on receipts. Defaults
  *   to "pi".
  * - `ASQAV_OBSERVE_ONLY=true` (optional): sign everything, never block.
  * - `ASQAV_FAIL_CLOSED=true` (optional): block tools when signing is
- *   unreachable.
+ *   unreachable. Init failure already fails closed by default.
+ * - `ASQAV_FAIL_OPEN=true` (or `ASQAV_FAIL_CLOSED=false`): deliberate dev
+ *   opt-out that restores the old inactive/allow behavior on init failure.
  */
 export default async function asqavExtension(pi: PiExtensionAPI): Promise<void> {
+  const failClosed = initFailClosedInEffect();
   const apiKey = process.env.ASQAV_API_KEY;
   if (!apiKey) {
-    // eslint-disable-next-line no-console
-    console.warn("[asqav/pi] ASQAV_API_KEY not set; Asqav signing is inactive.");
+    if (failClosed) {
+      // eslint-disable-next-line no-console
+      console.error(
+        "[asqav/pi] ASQAV_API_KEY not set; failing closed and blocking all tool calls. Set ASQAV_FAIL_OPEN=true to run ungoverned.",
+      );
+      registerInitFailClosed(pi);
+    } else {
+      // eslint-disable-next-line no-console
+      console.warn("[asqav/pi] ASQAV_API_KEY not set and fail-open opt-out is set; Asqav signing is inactive.");
+    }
     return;
   }
   try {
@@ -244,8 +274,17 @@ export default async function asqavExtension(pi: PiExtensionAPI): Promise<void> 
       failClosed: process.env.ASQAV_FAIL_CLOSED === "true",
     });
   } catch (err) {
-    // Startup must never break pi. Log and stay inactive.
-    // eslint-disable-next-line no-console
-    console.warn("[asqav/pi] failed to initialize Asqav agent; signing is inactive:", err);
+    if (failClosed) {
+      // Init failed but governance was intended: block everything.
+      // eslint-disable-next-line no-console
+      console.error(
+        "[asqav/pi] failed to initialize Asqav agent; failing closed and blocking all tool calls. Set ASQAV_FAIL_OPEN=true to run ungoverned:",
+        err,
+      );
+      registerInitFailClosed(pi);
+    } else {
+      // eslint-disable-next-line no-console
+      console.warn("[asqav/pi] failed to initialize Asqav agent and fail-open opt-out is set; signing is inactive:", err);
+    }
   }
 }
