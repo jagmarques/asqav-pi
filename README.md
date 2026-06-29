@@ -18,6 +18,16 @@ References, cold-verified:
 - [Extensions](https://pi.dev/docs/latest/extensions), covering `tool_call` ("Can block") and `tool_result`
 - [Pi packages](https://pi.dev/docs/latest/packages), covering the `pi` manifest and install sources
 
+## asqav Pi (locked distribution)
+
+Want Pi governed by default, in every process including sub-agents? Run the locked
+distribution: upstream Pi + `@asqav/pi` installed globally + fail-closed. It is not a
+fork. See [docs/asqav-pi-distribution.md](docs/asqav-pi-distribution.md) and run:
+
+```bash
+scripts/install-asqav-pi.sh --help
+```
+
 ## Install
 
 ```bash
