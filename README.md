@@ -56,7 +56,7 @@ Every tool call pi makes now produces signed `tool:start` and `tool:end` receipt
 Environment options:
 
 - `ASQAV_AGENT_NAME`: the agent name on receipts. Defaults to `pi`.
-- `ASQAV_OBSERVE_ONLY=true`: sign everything, never block.
+- `ASQAV_OBSERVE_ONLY=true`: sign everything, never block. This only takes effect once init succeeds; if init fails the fail-closed default still blocks every tool (use `ASQAV_FAIL_OPEN=true` for audit-only setups that must keep running through a startup signer outage).
 - `ASQAV_FAIL_CLOSED=true`: block tools when Asqav is unreachable mid-session (a signing transport error). The default here is fail-open so a transient outage never breaks a working coding agent. A real deny always blocks regardless.
 - `ASQAV_FAIL_OPEN=true` (or `ASQAV_FAIL_CLOSED=false`): deliberate dev opt-out that restores the old inactive/allow behavior when init fails. Pi runs ungoverned, so use it only when you know that is what you want.
 
