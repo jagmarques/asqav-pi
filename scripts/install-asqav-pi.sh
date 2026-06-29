@@ -3,9 +3,10 @@
 # POSIX sh. Every mechanism is web-verified in docs/asqav-pi-distribution.md.
 set -eu
 
-# Source to install. Pin to a tag or commit for a deterministic fleet, e.g.
-#   ASQAV_PI_SOURCE=git:github.com/jagmarques/asqav-pi@<tag-or-commit>
-ASQAV_PI_SOURCE="${ASQAV_PI_SOURCE:-git:github.com/jagmarques/asqav-pi}"
+# Source to install. Defaults to the npm package; pin to a version for a
+# deterministic fleet, e.g. ASQAV_PI_SOURCE=npm:@asqav/pi@<version>, or use the
+# git source ASQAV_PI_SOURCE=git:github.com/jagmarques/asqav-pi[@<tag-or-commit>].
+ASQAV_PI_SOURCE="${ASQAV_PI_SOURCE:-npm:@asqav/pi}"
 PI_NPM_PKG="@earendil-works/pi-coding-agent"
 PI_HOME="${HOME}/.pi/agent"
 ENV_FILE="${PI_HOME}/asqav-pi.env"
@@ -27,10 +28,10 @@ Steps:
      shell profile, so an unreachable asqav blocks the tool call, not runs ungoverned.
 
 Env overrides:
-  ASQAV_PI_SOURCE   Pi package source (default git:github.com/jagmarques/asqav-pi).
-                    Pin with @<tag-or-commit> for a deterministic install.
-  ASQAV_API_KEY     Your asqav API key. Without it at runtime the extension stays
-                    inactive and Pi runs ungoverned (see docs FOLLOW-UP).
+  ASQAV_PI_SOURCE   @asqav/pi source (default npm:@asqav/pi). Pin with @<version>
+                    (npm) or @<tag-or-commit> (git) for a deterministic install.
+  ASQAV_API_KEY     Your asqav API key. Without it the extension fails closed and
+                    blocks every tool call (set ASQAV_FAIL_OPEN=true to opt out).
 
 Options:
   --dry-run   Print every action without running it.
@@ -112,11 +113,11 @@ else
   say "Wired ${PROFILE} to source ${ENV_FILE}."
 fi
 
-# Runtime key check: without it the extension disables itself and Pi is ungoverned.
+# Runtime key check: without it the extension fails closed and blocks every tool.
 if [ -z "${ASQAV_API_KEY:-}" ]; then
   say ""
-  say "WARNING: ASQAV_API_KEY is not set. Until you export it, @asqav/pi stays"
-  say "inactive and Pi runs ungoverned. Set: export ASQAV_API_KEY=sk_..."
+  say "WARNING: ASQAV_API_KEY is not set. Until you export it, @asqav/pi fails"
+  say "closed and blocks every tool call. Set: export ASQAV_API_KEY=sk_..."
 fi
 
 say ""
