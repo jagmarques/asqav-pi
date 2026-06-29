@@ -39,13 +39,15 @@ The script:
 Run `scripts/install-asqav-pi.sh --dry-run` to print every action first, or `--help`
 for options.
 
-`@asqav/pi` is not published to npm, so the default source is git
-(`git:github.com/jagmarques/asqav-pi`). For a deterministic fleet, pin it to a tag or
-commit:
+`@asqav/pi` is published to npm, so the default source is `npm:@asqav/pi`. For a
+deterministic fleet, pin it to a version:
 
 ```bash
-ASQAV_PI_SOURCE=git:github.com/jagmarques/asqav-pi@<tag-or-commit> scripts/install-asqav-pi.sh
+ASQAV_PI_SOURCE=npm:@asqav/pi@<version> scripts/install-asqav-pi.sh
 ```
+
+The git source still works as an alternative
+(`ASQAV_PI_SOURCE=git:github.com/jagmarques/asqav-pi@<tag-or-commit>`).
 
 Then export your key and run Pi as usual:
 
@@ -63,15 +65,15 @@ missing packages automatically on startup once the project is trusted.
 {
   "packages": [
     {
-      "source": "git:github.com/jagmarques/asqav-pi",
+      "source": "npm:@asqav/pi",
       "extensions": ["extensions/*.ts"]
     }
   ]
 }
 ```
 
-Replace the source with `...@<tag-or-commit>` to lock a version. A template ships at the
-repo root in `.pi/settings.json`.
+Replace the source with `npm:@asqav/pi@<version>` to lock a version. A template ships at
+the repo root in `.pi/settings.json`.
 
 Note: Pi's `settings.json` has no field for environment variables, so the fail-closed env
 (`ASQAV_FAIL_CLOSED=true`) is set in the shell profile by the install script, not in
@@ -81,13 +83,17 @@ Note: Pi's `settings.json` has no field for environment variables, so the fail-c
 
 The extension reads its configuration from the environment:
 
-- `ASQAV_API_KEY` (required): the asqav API key. **Without it the extension logs once and
-  stays inactive**, so Pi keeps working but is ungoverned.
+- `ASQAV_API_KEY` (required): the asqav API key. **Without it the extension fails closed
+  by default and blocks every tool call** (set `ASQAV_FAIL_OPEN=true` to run ungoverned).
 - `ASQAV_AGENT_NAME` (optional): the agent name on receipts, default `pi`.
-- `ASQAV_OBSERVE_ONLY=true` (optional): sign every tool call, never block.
-- `ASQAV_FAIL_CLOSED=true` (optional): block the tool when signing is unreachable. The
-  extension default is fail-open so an unreachable asqav never breaks a working agent. A
-  real policy deny blocks regardless of this flag.
+- `ASQAV_OBSERVE_ONLY=true` (optional): sign every tool call, never block (only once init
+  succeeds; an init failure still fails closed unless `ASQAV_FAIL_OPEN=true`).
+- `ASQAV_FAIL_CLOSED=true` (optional): block the tool when signing is unreachable
+  mid-session. That mid-session default is fail-open so a transient outage never breaks a
+  working agent; init failure is a separate axis that fails closed by default. A real
+  policy deny blocks regardless of this flag.
+- `ASQAV_FAIL_OPEN=true` (or `ASQAV_FAIL_CLOSED=false`): deliberate opt-out that restores
+  the old inactive/allow behavior when the extension cannot initialize.
 
 The distribution sets `ASQAV_FAIL_CLOSED=true` to turn the unreachable case into a block.
 
@@ -98,19 +104,18 @@ in every Pi process is signed before it runs, a policy deny blocks the tool, and
 unreachable asqav also blocks it. Because the install is global, the same holds inside
 spawned sub-agent processes.
 
-Caveat: the guarantee depends on the **global** install reaching every process and on the
-runtime API key being present. A project-only install does not govern sub-agent processes
-that read global settings, and a missing `ASQAV_API_KEY` silently disables the extension.
+Caveat: the guarantee depends on the **global** install reaching every process. A
+project-only install does not govern sub-agent processes that read global settings. A
+missing `ASQAV_API_KEY` no longer disables the extension; by default it fails closed and
+blocks every tool call (opt out with `ASQAV_FAIL_OPEN=true`).
 
-## Known gap (FOLLOW-UP, not shipped here)
+## Fail-closed on init failure (shipped)
 
-Today `ASQAV_FAIL_CLOSED` only covers signing transport errors. It does not cover a
-missing or invalid `ASQAV_API_KEY` or a failed agent startup: in those cases the
-extension stays inactive and Pi runs fully ungoverned. A truly fail-closed-by-default
-distribution would need a small `@asqav/pi` change so that, when fail-closed is on and the
-extension cannot initialize, it blocks all tool calls (or refuses to start Pi) instead of
-disabling itself. That is a scoped extension change, tracked as a follow-up; this
-distribution does not overclaim it.
+The extension is fail-closed by default when it cannot initialize: a missing
+`ASQAV_API_KEY` or a failed agent startup blocks every tool call instead of running Pi
+ungoverned. This is independent of the mid-session `ASQAV_FAIL_CLOSED` signing-transport
+flag. Set `ASQAV_FAIL_OPEN=true` (or `ASQAV_FAIL_CLOSED=false`) to deliberately opt out
+and restore the old inactive/allow behavior. Covered by `tests/init-failclosed.test.ts`.
 
 ## Sources
 

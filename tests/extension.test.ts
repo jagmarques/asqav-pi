@@ -8,10 +8,8 @@ import {
   type ToolCallHandlerResult,
 } from "../extensions/asqav.js";
 
-/**
- * Build a fake pi extension API that captures handlers and lets tests emit
- * tool events. Typed through `unknown` so tests never depend on pi itself.
- */
+/** Fake pi extension API that captures handlers and lets tests emit tool
+ * events. Typed through `unknown` so tests never depend on pi itself. */
 function fakePi() {
   const handlers: Record<string, Array<(event: unknown, ctx: unknown) => unknown>> = {};
   const pi = {
@@ -31,10 +29,8 @@ function fakePi() {
   };
 }
 
-/**
- * Build a mock Asqav Agent exposing only the surface the extension touches:
- * `sign` and `preflight`.
- */
+/** Mock Asqav Agent exposing only the surface the extension touches:
+ * `sign` and `preflight`. */
 function mockAgent(overrides: Partial<{ sign: ReturnType<typeof vi.fn>; preflight: ReturnType<typeof vi.fn> }> = {}) {
   const sign = overrides.sign ?? vi.fn().mockResolvedValue({ signatureId: "sig_1" });
   const preflight =

@@ -1,38 +1,12 @@
 /**
- * Asqav extension for the pi coding agent (https://pi.dev).
- *
- * Subscribes to pi's `tool_call` event, which fires before a tool executes
- * and can block, so Asqav signs the intended tool call before it runs and
- * blocks a refused call. This is a pre-execution gate: stop a rogue agent
- * before it acts, and prove what it tried. The `tool_result` event signs a
- * matching `tool:end` receipt after execution.
- *
- * The pi extension API (cold-verified against the current docs):
- *   pi.on("tool_call", async (event, ctx) => { ... })
- * where the handler may return `{ block: true, reason?: string }` to stop
- * the tool, and
- *   pi.on("tool_result", async (event, ctx) => { ... })
- * which fires after execution and may patch the result (this extension
- * never does; it only signs).
- *
- * Source URLs verified:
- *   - https://pi.dev/docs/latest/extensions
- *     ("tool_call ... Fired after tool_execution_start, before the tool
- *      executes. Can block."; "Return values from tool_call only control
- *      blocking via { block: true, reason?: string }")
- *   - https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md
- *   - https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/packages.md
- *     (package `pi` manifest, `extensions/` convention directory)
+ * Asqav extension for the pi coding agent (https://pi.dev): signs and can block
+ * each tool call via pi's pre-execution `tool_call` gate; signs `tool:end` after.
  */
 
 import { init, Agent } from "@asqav/sdk";
 
-/**
- * Minimal structural types for the pi extension API. We only need `on` with
- * the two tool events, so we type just that surface and avoid a dependency
- * on `@earendil-works/pi-coding-agent`. Kept loose on purpose so this
- * extension stays compatible as pi evolves.
- */
+/** Minimal structural types for pi's extension API (just the `on` overloads),
+ * kept loose to avoid depending on @earendil-works/pi-coding-agent. */
 export interface PiToolCallEvent {
   toolName: string;
   toolCallId: string;
@@ -62,10 +36,8 @@ export interface PiExtensionAPI {
   on(event: string, handler: (event: any, ctx: any) => any): void;
 }
 
-/**
- * The decision an Asqav preflight yields for a tool call. `allowed` is the
- * gate: when false and blocking is on, the tool never executes.
- */
+/** Preflight decision for a tool call; `allowed` is the gate (false + blocking
+ * on = the tool never executes). */
 export interface GuardDecision {
   allowed: boolean;
   reason?: string;
@@ -73,45 +45,23 @@ export interface GuardDecision {
 }
 
 export interface AsqavPiOptions {
-  /**
-   * Pre-built Asqav `Agent`. Call `init()` and `Agent.create()` from
-   * `@asqav/sdk` first, then pass the agent here.
-   */
+  /** Pre-built Asqav `Agent` (call `init()` + `Agent.create()` first). */
   agent: Agent;
-  /**
-   * When true (default), a refused preflight blocks the tool call via
-   * `{ block: true }` (pre-execution gate). When false, the call is signed
-   * for the audit trail but always allowed to run (observe-only).
-   */
+  /** When true (default), a refused preflight blocks the call via `{ block: true }`;
+   * false signs for the audit trail but always runs (observe-only). */
   block?: boolean;
-  /**
-   * Only sign these tool names (for example `["bash", "write", "edit"]`).
-   * Defaults to all tools, including custom tools other extensions add.
-   */
+  /** Only sign these tool names (e.g. `["bash","write","edit"]`); defaults to
+   * all tools, including custom tools other extensions add. */
   tools?: string[];
-  /**
-   * When true (default), sign a `tool:end` receipt on `tool_result` so the
-   * record shows the outcome, including whether the tool errored.
-   */
+  /** When true (default), sign a `tool:end` receipt on `tool_result`. */
   signResults?: boolean;
-  /**
-   * Optional preflight before signing. When supplied and it returns
-   * `allowed: false`, the tool is blocked without ever signing a permit.
-   * Defaults to a status + policy preflight via `agent.preflight`.
-   */
+  /** Optional preflight; `allowed: false` blocks without signing a permit.
+   * Defaults to a status + policy preflight via `agent.preflight`. */
   preflight?: (actionType: string, input: unknown) => Promise<GuardDecision> | GuardDecision;
-  /**
-   * Error sink for signing failures. Signing is fail-open by default: a
-   * network error does not block the tool. Set `failClosed: true` to block
-   * instead.
-   */
+  /** Error sink for signing failures (fail-open by default; see `failClosed`). */
   onError?: (err: unknown, ctx: { toolName: string }) => void;
-  /**
-   * When true, a signing transport error blocks the tool (fail-closed).
-   * Defaults to false (fail-open): governance must not break a working
-   * coding agent when Asqav is unreachable. A refused preflight (a real
-   * deny) still blocks regardless of this flag.
-   */
+  /** When true, a signing transport error blocks the tool (fail-closed). Default
+   * false: an unreachable Asqav must not break a working agent; a real deny still blocks. */
   failClosed?: boolean;
 }
 
@@ -120,11 +70,8 @@ function defaultOnError(err: unknown, ctx: { toolName: string }): void {
   console.warn(`[asqav/pi] sign failed for tool '${ctx.toolName}':`, err);
 }
 
-/**
- * Run the configured preflight. Defaults to `agent.preflight`, mapping its
- * `PreflightResult` onto a `GuardDecision`. Fail-open: a preflight transport
- * error never blocks on its own.
- */
+/** Run the configured preflight (defaults to `agent.preflight`, mapped to a
+ * GuardDecision). Fail-open: a preflight transport error never blocks. */
 async function runPreflight(
   opts: AsqavPiOptions,
   actionType: string,
@@ -146,15 +93,8 @@ async function runPreflight(
   }
 }
 
-/**
- * Register Asqav signing on a pi extension API. Every tool call pi makes
- * produces a signed `tool:start` receipt before the tool runs, and a
- * `tool:end` receipt after. A refused preflight blocks the tool and the
- * deny is signed, so the record shows what the agent tried.
- *
- * Use this directly when embedding pi via its SDK, or rely on the default
- * export, which reads `ASQAV_API_KEY` and registers automatically.
- */
+/** Register Asqav signing on a pi extension API: sign `tool:start` before each
+ * tool runs and `tool:end` after; a refused preflight blocks and is signed. */
 export function registerAsqav(pi: PiExtensionAPI, options: AsqavPiOptions): void {
   const block = options.block !== false;
   const signResults = options.signResults !== false;
@@ -234,21 +174,9 @@ export function registerInitFailClosed(pi: PiExtensionAPI): void {
   });
 }
 
-/**
- * Default pi extension entry point. Pi auto-discovers this file via the
- * package's `pi.extensions` manifest and calls it with the extension API.
- *
- * Configuration comes from the environment:
- * - `ASQAV_API_KEY` (required): your Asqav API key. Without it, init fails;
- *   by default that fails closed and blocks every tool call.
- * - `ASQAV_AGENT_NAME` (optional): the agent name on receipts. Defaults
- *   to "pi".
- * - `ASQAV_OBSERVE_ONLY=true` (optional): sign everything, never block.
- * - `ASQAV_FAIL_CLOSED=true` (optional): block tools when signing is
- *   unreachable. Init failure already fails closed by default.
- * - `ASQAV_FAIL_OPEN=true` (or `ASQAV_FAIL_CLOSED=false`): deliberate dev
- *   opt-out that restores the old inactive/allow behavior on init failure.
- */
+/** Default pi extension entry point (auto-discovered via the `pi.extensions`
+ * manifest). Env config: ASQAV_API_KEY, ASQAV_AGENT_NAME, ASQAV_OBSERVE_ONLY,
+ * ASQAV_FAIL_CLOSED, ASQAV_FAIL_OPEN; init failure fails closed. See README. */
 export default async function asqavExtension(pi: PiExtensionAPI): Promise<void> {
   const failClosed = initFailClosedInEffect();
   const apiKey = process.env.ASQAV_API_KEY;
