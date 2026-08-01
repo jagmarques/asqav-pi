@@ -106,10 +106,10 @@ export function registerAsqav(pi: PiExtensionAPI, options: AsqavPiOptions): void
     }
     const actionType = `tool:start:${event.toolName}`;
 
-    // 1. Preflight: a hard deny here blocks before any permit signs.
+    // Preflight: a hard deny here blocks before any permit signs.
     const pre = await runPreflight(options, actionType, event.input);
 
-    // 2. Sign the intended tool call. The receipt records what the agent
+    // Sign the intended tool call. The receipt records what the agent
     //    tried, before it runs. A deny is signed as a deny.
     try {
       await options.agent.sign({
@@ -127,7 +127,7 @@ export function registerAsqav(pi: PiExtensionAPI, options: AsqavPiOptions): void
       // Fail-open: continue to the real tool.
     }
 
-    // 3. Block the tool only on a real deny.
+    // Block the tool only on a real deny.
     if (!pre.allowed && block) {
       const reason =
         pre.reason ?? (pre.reasons && pre.reasons.join("; ")) ?? "Asqav preflight refused";
