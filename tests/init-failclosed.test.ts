@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { PiExtensionAPI, PiToolCallEvent, ToolCallHandlerResult } from "../extensions/asqav.js";
 
-// Mock the Asqav SDK to drive the default extension's init path:
-// a clean init success, and an Agent.create that throws.
+// Mock the Asqav SDK to drive init path
 const init = vi.fn();
 const create = vi.fn();
 vi.mock("@asqav/sdk", () => ({

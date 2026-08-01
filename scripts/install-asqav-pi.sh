@@ -3,9 +3,7 @@
 # POSIX sh. Every mechanism is web-verified in docs/asqav-pi-distribution.md.
 set -eu
 
-# Source to install. Defaults to the npm package; pin to a version for a
-# deterministic fleet, e.g. ASQAV_PI_SOURCE=npm:@asqav/pi@<version>, or use the
-# git source ASQAV_PI_SOURCE=git:github.com/jagmarques/asqav-pi[@<tag-or-commit>].
+# Source: npm package or git (ASQAV_PI_SOURCE=npm:@asqav/pi@ver or git:owner/asqav-pi)
 ASQAV_PI_SOURCE="${ASQAV_PI_SOURCE:-npm:@asqav/pi}"
 PI_NPM_PKG="@earendil-works/pi-coding-agent"
 PI_HOME="${HOME}/.pi/agent"
@@ -86,9 +84,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
 else
   mkdir -p "$PI_HOME"
   cat > "$ENV_FILE" <<'ENVEOF'
-# Managed by the asqav Pi installer. Fail-closed governance for Pi.
-# An unreachable asqav blocks the tool call instead of running ungoverned.
-# A real policy deny blocks regardless of this flag.
+# Managed by asqav Pi installer: fail-closed, unreachable asqav blocks tool calls
 export ASQAV_FAIL_CLOSED=true
 ENVEOF
 fi

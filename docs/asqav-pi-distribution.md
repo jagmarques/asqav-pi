@@ -100,8 +100,8 @@ The distribution sets `ASQAV_FAIL_CLOSED=true` to turn the unreachable case into
 ## The one guarantee and its one caveat
 
 Guarantee: with `ASQAV_API_KEY` set and `ASQAV_FAIL_CLOSED=true`, every model tool call
-in every Pi process is signed before it runs, a policy deny blocks the tool, and an
-unreachable asqav also blocks it. Because the install is global, the same holds inside
+in every Pi process is signed before it runs. A policy deny blocks the tool, and an
+unreachable asqav blocks it too. Because the install is global, the same holds inside
 spawned sub-agent processes.
 
 Caveat: the guarantee depends on the **global** install reaching every process. A
