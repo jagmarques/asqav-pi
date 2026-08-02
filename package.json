@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Asqav extension for the pi coding agent - sign and gate tool calls before they execute",
   "keywords": ["pi-package", "asqav", "pi", "coding-agent", "ai-governance", "tool-calling", "audit-trail"],
-  "license": "MIT",
+  "license": "Elastic-2.0",
   "author": "Asqav <info@asqav.com>",
   "homepage": "https://asqav.com",
   "repository": { "type": "git", "url": "https://github.com/jagmarques/asqav-pi.git" },
