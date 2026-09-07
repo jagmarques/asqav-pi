@@ -119,6 +119,19 @@ describe("registerAsqav tool_call", () => {
     expect(result).toBeUndefined();
     expect(sign).not.toHaveBeenCalled();
   });
+
+  it("treats a default-preflight transport error as allowed, never a block", async () => {
+    const preflight = vi.fn().mockRejectedValue(new Error("network down"));
+    const { agent, sign } = mockAgent({ preflight });
+    const { pi, emitToolCall } = fakePi();
+    registerAsqav(pi, { agent });
+
+    const result = await emitToolCall({ toolName: "bash", toolCallId: "c8", input: {} });
+
+    expect(result).toBeUndefined();
+    expect(sign).toHaveBeenCalledTimes(1);
+    expect(sign.mock.calls[0][0]).toMatchObject({ policyDecision: "permit" });
+  });
 });
 
 describe("registerAsqav tool_result", () => {
@@ -143,5 +156,15 @@ describe("registerAsqav tool_result", () => {
     registerAsqav(pi, { agent, signResults: false });
 
     expect(handlers["tool_result"]).toBeUndefined();
+  });
+
+  it("skips tool:end signing for tools outside the tools filter", async () => {
+    const { agent, sign } = mockAgent();
+    const { pi, emitToolResult } = fakePi();
+    registerAsqav(pi, { agent, tools: ["bash"] });
+
+    await emitToolResult({ toolName: "write", toolCallId: "c9", input: {} });
+
+    expect(sign).not.toHaveBeenCalled();
   });
 });

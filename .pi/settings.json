@@ -1,8 +1,5 @@
 {
   "packages": [
-    {
-      "source": "npm:@asqav/pi",
-      "extensions": ["extensions/*.ts"]
-    }
+    "git:github.com/jagmarques/asqav-pi"
   ]
 }

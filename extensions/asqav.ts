@@ -48,7 +48,7 @@ export interface AsqavPiOptions {
   /** Pre-built Asqav `Agent` (call `init()` + `Agent.create()` first). */
   agent: Agent;
   /** When true (default), a refused preflight blocks the call via `{ block: true }`;
-   * false signs for the audit trail but always runs (observe-only). */
+   * false observes policy refusals; `failClosed` still governs signing errors. */
   block?: boolean;
   /** Only sign these tool names (e.g. `["bash","write","edit"]`); defaults to
    * all tools, including custom tools other extensions add. */
@@ -61,13 +61,21 @@ export interface AsqavPiOptions {
   /** Error sink for signing failures (fail-open by default; see `failClosed`). */
   onError?: (err: unknown, ctx: { toolName: string }) => void;
   /** When true, a signing transport error blocks the tool (fail-closed). Default
-   * false: an unreachable Asqav must not break a working agent; a real deny still blocks. */
+   * false. Preflight refusals still block when `block` is true. */
   failClosed?: boolean;
 }
 
 function defaultOnError(err: unknown, ctx: { toolName: string }): void {
   // eslint-disable-next-line no-console
   console.warn(`[asqav/pi] sign failed for tool '${ctx.toolName}':`, err);
+}
+
+function reportSigningError(onError: NonNullable<AsqavPiOptions["onError"]>, err: unknown, toolName: string): void {
+  try {
+    onError(err, { toolName });
+  } catch {
+    // Diagnostics cannot change the configured tool decision or its result.
+  }
 }
 
 /** Run the configured preflight (defaults to `agent.preflight`, mapped to a
@@ -112,15 +120,18 @@ export function registerAsqav(pi: PiExtensionAPI, options: AsqavPiOptions): void
     // Sign the intended tool call. The receipt records what the agent
     //    tried, before it runs. A deny is signed as a deny.
     try {
-      await options.agent.sign({
+      const receipt = await options.agent.sign({
         actionType,
         toolName: event.toolName,
         context: { tool_name: event.toolName, input: event.input },
         policyDecision: pre.allowed ? "permit" : "deny",
         ...(pre.allowed ? {} : { reason: "policy_blocked" as const }),
       });
+      if (block && receipt.policyDecision !== undefined && receipt.policyDecision !== "permit") {
+        return { block: true, reason: "Asqav signer denied this tool call" };
+      }
     } catch (err) {
-      onError(err, { toolName: event.toolName });
+      reportSigningError(onError, err, event.toolName);
       if (options.failClosed) {
         return { block: true, reason: "Asqav signing unavailable (fail-closed)" };
       }
@@ -148,7 +159,7 @@ export function registerAsqav(pi: PiExtensionAPI, options: AsqavPiOptions): void
           policyDecision: "permit",
         });
       } catch (err) {
-        onError(err, { toolName: event.toolName });
+        reportSigningError(onError, err, event.toolName);
       }
       // Never patch the result; this extension only signs.
     });
@@ -157,7 +168,7 @@ export function registerAsqav(pi: PiExtensionAPI, options: AsqavPiOptions): void
 
 /** Reason returned for every tool call when governance was intended but init failed. */
 export const INIT_FAIL_CLOSED_REASON =
-  "asqav governance could not initialize (e.g. missing ASQAV_API_KEY or signer unreachable); failing closed - no tool runs ungoverned";
+  "Asqav could not initialize; failing closed for this process\'s model tool calls";
 
 // True when an init failure should block every tool rather than run pi
 // ungoverned. Default on; opt out with ASQAV_FAIL_OPEN/ASQAV_FAIL_CLOSED.
@@ -174,23 +185,26 @@ export function registerInitFailClosed(pi: PiExtensionAPI): void {
   });
 }
 
-/** Default pi extension entry point (auto-discovered via the `pi.extensions`
- * manifest). Env config: ASQAV_API_KEY, ASQAV_AGENT_NAME, ASQAV_OBSERVE_ONLY,
- * ASQAV_FAIL_CLOSED, ASQAV_FAIL_OPEN; init failure fails closed. See README. */
+function reportInitFailure(pi: PiExtensionAPI, failClosed: boolean, error: unknown): void {
+  if (failClosed) registerInitFailClosed(pi);
+  try {
+    const message = failClosed
+      ? "[asqav/pi] could not initialize; failing closed and blocking tool calls."
+      : "[asqav/pi] fail-open opt-out is set; Asqav signing is inactive.";
+    if (failClosed) console.error(message, error);
+    else console.warn(message, error);
+  } catch {
+    // Pi discards a factory's handlers when it throws, including a blocking handler.
+  }
+}
+
+/** Pi package entry point. Startup failure blocks tool calls unless the caller
+ * sets ASQAV_FAIL_OPEN=true or ASQAV_FAIL_CLOSED=false. See README. */
 export default async function asqavExtension(pi: PiExtensionAPI): Promise<void> {
   const failClosed = initFailClosedInEffect();
   const apiKey = process.env.ASQAV_API_KEY;
   if (!apiKey) {
-    if (failClosed) {
-      // eslint-disable-next-line no-console
-      console.error(
-        "[asqav/pi] ASQAV_API_KEY not set; failing closed and blocking all tool calls. Set ASQAV_FAIL_OPEN=true to run ungoverned.",
-      );
-      registerInitFailClosed(pi);
-    } else {
-      // eslint-disable-next-line no-console
-      console.warn("[asqav/pi] ASQAV_API_KEY not set and fail-open opt-out is set; Asqav signing is inactive.");
-    }
+    reportInitFailure(pi, failClosed, "ASQAV_API_KEY is not set");
     return;
   }
   try {
@@ -202,17 +216,6 @@ export default async function asqavExtension(pi: PiExtensionAPI): Promise<void> 
       failClosed: process.env.ASQAV_FAIL_CLOSED === "true",
     });
   } catch (err) {
-    if (failClosed) {
-      // Init failed but governance was intended: block everything.
-      // eslint-disable-next-line no-console
-      console.error(
-        "[asqav/pi] failed to initialize Asqav agent; failing closed and blocking all tool calls. Set ASQAV_FAIL_OPEN=true to run ungoverned:",
-        err,
-      );
-      registerInitFailClosed(pi);
-    } else {
-      // eslint-disable-next-line no-console
-      console.warn("[asqav/pi] failed to initialize Asqav agent and fail-open opt-out is set; signing is inactive:", err);
-    }
+    reportInitFailure(pi, failClosed, err);
   }
 }

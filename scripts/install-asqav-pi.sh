@@ -1,34 +1,34 @@
 #!/bin/sh
-# asqav Pi installer: upstream Pi + @asqav/pi global extension + fail-closed env.
-# POSIX sh. Every mechanism is web-verified in docs/asqav-pi-distribution.md.
+# Install Pi and its Asqav extension with fail-closed startup.
 set -eu
 
-# Source: npm package or git (ASQAV_PI_SOURCE=npm:@asqav/pi@ver or git:owner/asqav-pi)
-ASQAV_PI_SOURCE="${ASQAV_PI_SOURCE:-npm:@asqav/pi}"
-PI_NPM_PKG="@earendil-works/pi-coding-agent"
-PI_HOME="${HOME}/.pi/agent"
+# Override the npm or Git source with ASQAV_PI_SOURCE.
+ASQAV_PI_SOURCE="${ASQAV_PI_SOURCE:-git:github.com/jagmarques/asqav-pi}"
+PI_NPM_PKG="@earendil-works/pi-coding-agent@0.85.1"
+PI_HOME="${PI_CODING_AGENT_DIR:-${HOME}/.pi/agent}"
 ENV_FILE="${PI_HOME}/asqav-pi.env"
 MARKER="# >>> asqav-pi >>>"
 DRY_RUN=0
 
 usage() {
   cat <<'EOF'
-asqav Pi installer - upstream Pi + @asqav/pi global extension + fail-closed governance.
+Asqav Pi installer - add an extension and configure signing failures to block.
 
 Usage:
   install-asqav-pi.sh [--dry-run] [--help]
 
 Steps:
-  1. Install upstream Pi (npm @earendil-works/pi-coding-agent) if `pi` is absent.
-  2. Install @asqav/pi into Pi's GLOBAL package set (~/.pi/agent/settings.json), so
-     its tool_call gate loads in every Pi process, including spawned sub-agents.
+  1. Install Pi 0.85.1 with npm if `pi` is absent. Requires Node.js 22.19+.
+  2. Add @asqav/pi to Pi's global package configuration. Each process must load it.
   3. Write a fail-closed env file (ASQAV_FAIL_CLOSED=true) and source it from your
-     shell profile, so an unreachable asqav blocks the tool call, not runs ungoverned.
+     shell profile. The setting applies when that environment file is sourced.
 
 Env overrides:
-  ASQAV_PI_SOURCE   @asqav/pi source (default npm:@asqav/pi). Pin with @<version>
-                    (npm) or @<tag-or-commit> (git) for a deterministic install.
-  ASQAV_API_KEY     Your asqav API key. Without it the extension fails closed and
+  ASQAV_PI_SOURCE   Package source; default git:github.com/jagmarques/asqav-pi.
+                    Append @<commit> to pin Git code, or supply a local directory.
+  PI_CODING_AGENT_DIR  Pi configuration directory; default ~/.pi/agent.
+  ASQAV_PI_PROFILE  Shell profile to edit; default follows $SHELL.
+  ASQAV_API_KEY     Your Asqav API key. Without it the extension fails closed and
                     blocks every tool call (set ASQAV_FAIL_OPEN=true to opt out).
 
 Options:
@@ -58,22 +58,22 @@ for arg in "$@"; do
   esac
 done
 
-# Step 1: upstream Pi.
+# Step 1: supported Node runtime and upstream Pi.
+if ! have node || ! node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major > 22 || (major === 22 && minor >= 19) ? 0 : 1)'; then
+  say "Node.js 22.19 or newer is required."
+  exit 1
+fi
 if have pi; then
   say "Pi present: $(pi --version 2>/dev/null || echo unknown)"
 elif have npm; then
   say "Installing upstream Pi via npm..."
-  run npm install -g --ignore-scripts "$PI_NPM_PKG"
+  run npm install -g "$PI_NPM_PKG"
 else
-  say "npm not found; installing upstream Pi via pi.dev/install.sh..."
-  if [ "$DRY_RUN" -eq 1 ]; then
-    printf '+ %s\n' "curl -fsSL https://pi.dev/install.sh | sh"
-  else
-    curl -fsSL https://pi.dev/install.sh | sh
-  fi
+  say "npm is required to install Pi."
+  exit 1
 fi
 
-# Step 2: @asqav/pi into the global package set so every process loads the gate.
+# Step 2: add @asqav/pi to the selected Pi configuration directory.
 say "Installing @asqav/pi globally from ${ASQAV_PI_SOURCE}..."
 run pi install "$ASQAV_PI_SOURCE"
 
@@ -84,7 +84,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
 else
   mkdir -p "$PI_HOME"
   cat > "$ENV_FILE" <<'ENVEOF'
-# Managed by asqav Pi installer: fail-closed, unreachable asqav blocks tool calls
+# Managed by Asqav Pi installer: signing errors block model tool calls
 export ASQAV_FAIL_CLOSED=true
 ENVEOF
 fi
@@ -95,6 +95,7 @@ case "${SHELL:-}" in
   *bash) PROFILE="${HOME}/.bashrc" ;;
   *) PROFILE="${HOME}/.profile" ;;
 esac
+PROFILE="${ASQAV_PI_PROFILE:-$PROFILE}"
 
 if [ "$DRY_RUN" -eq 1 ]; then
   printf '+ ensure %s sources %s\n' "$PROFILE" "$ENV_FILE"
@@ -103,13 +104,13 @@ elif [ -f "$PROFILE" ] && grep -qF "$MARKER" "$PROFILE"; then
 else
   {
     printf '%s\n' "$MARKER"
-    printf '%s\n' '[ -f "$HOME/.pi/agent/asqav-pi.env" ] && . "$HOME/.pi/agent/asqav-pi.env"'
+    printf '%s\n' '[ -f "${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/asqav-pi.env" ] && . "${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/asqav-pi.env"'
     printf '%s\n' "# <<< asqav-pi <<<"
   } >> "$PROFILE"
   say "Wired ${PROFILE} to source ${ENV_FILE}."
 fi
 
-# Runtime key check: without it the extension fails closed and blocks every tool.
+# A missing API key blocks this process's model tool calls.
 if [ -z "${ASQAV_API_KEY:-}" ]; then
   say ""
   say "WARNING: ASQAV_API_KEY is not set. Until you export it, @asqav/pi fails"
