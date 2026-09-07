@@ -1,97 +1,136 @@
-<p align="center">
-  <a href="https://asqav.com"><img src="https://asqav.com/logo-text-white.png" alt="Asqav" width="150"></a>
-</p>
+# Asqav for Pi
 
-# @asqav/pi
-
-Stop a rogue agent before it acts, and prove what it tried. This package is an extension for the [pi coding agent](https://pi.dev) that guards pi's tool calls with Asqav. It signs the intended tool call before the tool runs, and blocks the call when Asqav refuses. Every `bash`, `write`, and `edit` your coding agent attempts becomes a tamper-evident receipt, signed server-side with NIST FIPS 204 ML-DSA-65. The agent never holds the signing key, so it cannot forge the record.
-
-Asqav governs the agents you wire through it. An agent that never routes through the governed path produces no receipt and is not detected.
-
-This is a pre-execution gate. The extension subscribes to pi's `tool_call` event, which fires before the tool executes and can block, signs `tool:start`, and returns a block when a call is refused so the tool never runs. After execution it signs a matching `tool:end` receipt with the outcome.
-
-## How it hooks in
-
-Pi extensions are TypeScript modules that subscribe to lifecycle events. The `tool_call` event fires after `tool_execution_start` and before the tool executes, and a handler may return `{ block: true, reason }` to stop the tool. The `tool_result` event fires after execution. This extension uses exactly those two events and nothing else, so it stays out of the way of your other extensions.
-
-References, cold-verified:
-- [Extensions](https://pi.dev/docs/latest/extensions), covering `tool_call` ("Can block") and `tool_result`
-- [Pi packages](https://pi.dev/docs/latest/packages), covering the `pi` manifest and install sources
-
-## asqav Pi (locked distribution)
-
-Want Pi governed by default, in every process including sub-agents? Run the locked
-distribution: upstream Pi + `@asqav/pi` installed globally + fail-closed. It is not a
-fork. See [docs/asqav-pi-distribution.md](docs/asqav-pi-distribution.md) and run:
-
-```bash
-scripts/install-asqav-pi.sh --help
-```
+Sign model tool calls in [Pi](https://pi.dev) and block calls refused by Asqav's
+preflight or signing response. The extension uses Pi's `tool_call` and `tool_result`
+events. It covers tools dispatched through those events in the process that loads it.
 
 ## Install
 
-```bash
-pi install npm:@asqav/pi
-```
-
-Pi can also install straight from GitHub:
+Use Node.js 22.19 or newer. The integration is tested with Pi 0.85.1 and Asqav SDK
+0.10.10. Install Pi, then install this repository as a Pi package:
 
 ```bash
+npm install -g @earendil-works/pi-coding-agent@0.85.1
 pi install git:github.com/jagmarques/asqav-pi
-```
-
-Pi runs `npm install` for the package, which pulls in the `@asqav/sdk` dependency automatically.
-
-## Setup
-
-Set your Asqav API key and run pi as usual:
-
-```bash
-export ASQAV_API_KEY="sk_..."
+export ASQAV_API_KEY=your-api-key
+export ASQAV_FAIL_CLOSED=true
+export ASQAV_MODE=hash-only
 pi
 ```
 
-Every tool call pi makes now produces signed `tool:start` and `tool:end` receipts through the Asqav API. Governance is intended once the extension loads, so if it cannot initialize (no `ASQAV_API_KEY`, or the signer is unreachable at startup) it fails closed and blocks every tool call rather than letting pi run ungoverned. Opt out deliberately with `ASQAV_FAIL_OPEN=true`.
+Pi installs the package's dependencies and loads `extensions/asqav.ts`. To load a
+local checkout, run `npm ci` there, then `pi install /absolute/path/to/asqav-pi`.
+For a fixed source revision, append `@<commit>` to the Git source.
 
-Environment options:
+The [installer guide](docs/asqav-pi-distribution.md) covers shell configuration,
+project installs and process boundaries. Installation through Git selects this
+repository's code; npm releases have their own versioned contents.
 
-- `ASQAV_AGENT_NAME`: the agent name on receipts. Defaults to `pi`.
-- `ASQAV_OBSERVE_ONLY=true`: sign everything, never block. This only takes effect once init succeeds; if init fails the fail-closed default still blocks every tool (use `ASQAV_FAIL_OPEN=true` for audit-only setups that must keep running through a startup signer outage).
-- `ASQAV_FAIL_CLOSED=true`: block tools when Asqav is unreachable mid-session (a signing transport error). The default here is fail-open so a transient outage never breaks a working coding agent. A real deny always blocks regardless.
-- `ASQAV_FAIL_OPEN=true` (or `ASQAV_FAIL_CLOSED=false`): deliberate dev opt-out that restores the old inactive/allow behavior when init fails. Pi runs ungoverned, so use it only when you know that is what you want.
+## Decisions and failures
 
-## Programmatic use
+For each selected model tool call, the extension checks agent status and policy,
+then requests a `tool:start:<tool-name>` signature. A refused or incomplete
+preflight blocks execution in blocking mode. The extension also blocks a signing
+response carrying a policy decision other than `permit`.
 
-When embedding pi via its SDK, or when you want full control over the agent identity and options, register the extension yourself:
+| Setting | Behavior |
+| --- | --- |
+| `ASQAV_API_KEY` | Required for the default entry point to initialize an agent. |
+| `ASQAV_AGENT_NAME` | Agent name; defaults to `pi`. |
+| `ASQAV_FAIL_CLOSED=true` | A signing exception blocks execution. Without this setting, signing exceptions allow the call unless preflight refused it. |
+| `ASQAV_OBSERVE_ONLY=true` | Policy refusals allow execution. Signing exceptions still follow `ASQAV_FAIL_CLOSED`. |
+| `ASQAV_FAIL_OPEN=true` or `ASQAV_FAIL_CLOSED=false` | Startup failure leaves signing inactive. Otherwise startup failure installs a blocking handler. |
 
-```ts
+Startup and tool execution have separate failure settings. With no key, observation
+mode still blocks on startup unless the startup opt-out is set. Diagnostic failures
+do not change these decisions. A signing outage can prevent a denial receipt from
+being recorded even when the tool is blocked.
+
+On a completed tool execution, `tool_result` requests a `tool:end:<tool-name>`
+signature with the tool name and Pi's error flag. It does not include the tool output
+or a tool-call identifier. Result signing cannot undo the tool or replace its result.
+The extension does not verify the returned signature or fetch anchors.
+
+## Data sent to Asqav
+
+The start context includes the tool name and validated input. With `ASQAV_MODE=hash-only`,
+the SDK hashes that context locally and sends a digest, size and metadata. Tool names,
+action types and policy decisions remain visible to the service. With
+`ASQAV_MODE=full-payload`, tool inputs are sent in the signing request and can contain
+file contents, commands or secrets. End context contains the tool name and error flag.
+
+Without a mode override, the SDK selects hash mode for API hostnames under
+`*.asqav.com` and full payload mode for other API hostnames. The default entry point
+calls SDK `init()` with automatic mode selection; a valid `ASQAV_MODE` takes precedence.
+
+## Custom configuration
+
+In the Node.js project where Pi will run, install the extension and SDK as local
+dependencies. Pi's global package installation does not expose these imports to
+custom files in another project.
+
+```bash
+npm install "@asqav/pi@git+https://github.com/jagmarques/asqav-pi.git" "@asqav/sdk@^0.10.10"
+```
+
+Create `.pi/extensions/asqav-custom.ts` in that project containing:
+
+```typescript
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { init, Agent } from "@asqav/sdk";
 import { registerAsqav } from "@asqav/pi/extensions/asqav.ts";
 
-init({ apiKey: process.env.ASQAV_API_KEY! });
-const agent = await Agent.create({ name: "ci-coding-agent" });
-
-registerAsqav(pi, {
-  agent,
-  tools: ["bash", "write", "edit"],
-  failClosed: true,
-});
+export default async function (pi: ExtensionAPI) {
+  init({ apiKey: process.env.ASQAV_API_KEY!, mode: "hash-only" });
+  const agent = await Agent.create({ name: "ci-coding-agent" });
+  registerAsqav(pi, {
+    agent,
+    tools: ["bash", "write", "edit"],
+    failClosed: true,
+  });
+}
 ```
 
-`registerAsqav(pi, options)` accepts:
+If the default package is already installed in Pi, merge this package override into
+the project's `.pi/settings.json` to disable its default extension. Keep existing
+settings and package entries. The source must exactly match the installed Pi package;
+this example matches the Git source in the install command above.
 
-- `agent`, required: a pre-built Asqav `Agent` from `@asqav/sdk`.
-- `block`, defaulting to `true`: when a preflight is refused, block the tool. Set `false` for observe-only signing.
-- `tools`: only sign these tool names. Defaults to all tools.
-- `signResults`, defaulting to `true`: sign a `tool:end` receipt after each tool runs.
-- `preflight`: a custom `(actionType, input) => { allowed, reason }` check. Defaults to `agent.preflight`, which checks revocation, suspension, and active policies.
-- `failClosed`, defaulting to `false`: when a signing transport error occurs, block the tool.
-- `onError`: sink for signing transport errors. Defaults to `console.warn`.
+```json
+{
+  "packages": [
+    { "source": "git:github.com/jagmarques/asqav-pi", "extensions": [] }
+  ]
+}
+```
 
-## How blocking works
+Run Pi from that project. It discovers the custom extension in `.pi/extensions`.
+`registerAsqav` also accepts `block`, `signResults`,
+`preflight` and `onError`. A custom preflight returns `{ allowed: boolean, reason?: string }`;
+if it throws, Pi blocks the tool. Error callbacks are best effort. Only the default
+entry point installs a blocking handler on initialization failure; custom factories
+must handle their own startup failures.
 
-When the extension blocks, it returns `{ block: true, reason }` from the `tool_call` handler. Pi surfaces the block to the model as a failed tool call, so the model sees why and can react. The receipt for the refused call records `policy_decision: "deny"`, giving you proof of what the agent tried.
+The SDK preflight checks status and action-type policy. It does not evaluate the tool
+arguments. A custom preflight can inspect the input. A thrown SDK preflight exception
+is treated as a cleared preflight by this adapter; the released SDK represents
+incomplete network checks as a refusal instead.
 
-## License
+## Scope and tests
 
-MIT
+This extension is not a sandbox. It cannot protect a process that does not load it,
+an extension's direct side effects, user shell commands or a tool's internal actions.
+A global installation supplies a default package configuration; subprocesses can use
+different settings, credentials, environment variables or disabled extensions.
+
+```bash
+npm ci
+npm run lint
+npm run test:coverage
+```
+
+Tests include the real Pi loader, agent session and built-in write tool with a local
+model response and synthetic HTTP responses. They check dispatch and SDK serialization;
+they do not prove live service availability or cryptographic validity.
+
+Licensed under the [Elastic License 2.0](LICENSE).

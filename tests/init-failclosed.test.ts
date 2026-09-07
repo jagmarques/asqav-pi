@@ -69,7 +69,7 @@ describe("default extension init fail-closed", () => {
     expect(result && "reason" in result ? result.reason : "").toContain("could not initialize");
   });
 
-  it("does NOT block on init failure when ASQAV_FAIL_OPEN=true (opt-out), and warns", async () => {
+  it("does not block on init failure when ASQAV_FAIL_OPEN=true (opt-out), and warns", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     process.env.ASQAV_FAIL_OPEN = "true";
     const { pi, emitToolCall, handlers } = fakePi();

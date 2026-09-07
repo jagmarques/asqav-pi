@@ -1,127 +1,64 @@
-# asqav Pi - deterministic governed coding agent
+# Install Asqav in Pi
 
-asqav Pi is not a new agent and not a fork. It is upstream [Pi](https://pi.dev) plus
-the `@asqav/pi` extension installed globally, run fail-closed. With that combination
-every model tool call in every Pi process is signed and gated by asqav before it runs.
-
-## Why this is a distribution, not a fork
-
-Pi routes every model-decided action through one chokepoint. The model's only way to
-cause a side effect is to emit a tool call, and Pi funnels all of them through
-`tool_call` (which can block) before the tool executes. Built-in tools, extension
-tools, and MCP-as-tools all share that single gate. There is no built-in MCP path and
-no built-in sub-agent dispatch that sidesteps it. So an extension that hooks `tool_call`
-governs the whole model surface, and forking the CLI buys nothing for enforcement.
-
-A fork would also cost a perpetual rebase against a fast-moving pre-1.0 upstream, which
-is off asqav's mission. The verified analysis is in the research notes referenced at the
-end. The one requirement an extension cannot satisfy on its own is process coverage: a
-spawned sub-agent is a separate `pi` process, so the extension must be installed
-**globally** to load there too. That is exactly what this distribution sets up.
-
-## Install
+The installer adds the Asqav extension to Pi's global package configuration and
+writes a shell environment file with `ASQAV_FAIL_CLOSED=true`. Review its actions:
 
 ```bash
+scripts/install-asqav-pi.sh --dry-run
 scripts/install-asqav-pi.sh
 ```
 
-The script:
+Use Node.js 22.19 or newer. If Pi is absent, the installer installs Pi 0.85.1 with npm.
+Its default extension source is `git:github.com/jagmarques/asqav-pi`. Pin a revision
+by setting `ASQAV_PI_SOURCE=git:github.com/jagmarques/asqav-pi@<commit>`.
+A local absolute directory is also supported.
 
-1. Installs upstream Pi (`npm install -g --ignore-scripts @earendil-works/pi-coding-agent`)
-   if `pi` is not already on PATH.
-2. Installs `@asqav/pi` into Pi's global package set with `pi install`, which by default
-   writes to `~/.pi/agent/settings.json`. Pi discovers global extensions from
-   `~/.pi/agent/extensions/`, so the gate loads in every Pi process, including spawned
-   sub-agent processes.
-3. Writes `~/.pi/agent/asqav-pi.env` with `ASQAV_FAIL_CLOSED=true` and sources it from
-   your shell profile.
-
-Run `scripts/install-asqav-pi.sh --dry-run` to print every action first, or `--help`
-for options.
-
-`@asqav/pi` is published to npm, so the default source is `npm:@asqav/pi`. For a
-deterministic fleet, pin it to a version:
+By default the script writes `~/.pi/agent/asqav-pi.env` and adds a source line to
+`.zshrc`, `.bashrc` or `.profile`, according to `$SHELL`. `PI_CODING_AGENT_DIR` changes
+the Pi configuration directory. `ASQAV_PI_PROFILE` selects a shell profile explicitly.
+The script does not write an API key. Open a new shell, then configure one:
 
 ```bash
-ASQAV_PI_SOURCE=npm:@asqav/pi@<version> scripts/install-asqav-pi.sh
-```
-
-The git source still works as an alternative
-(`ASQAV_PI_SOURCE=git:github.com/jagmarques/asqav-pi@<tag-or-commit>`).
-
-Then export your key and run Pi as usual:
-
-```bash
-export ASQAV_API_KEY=sk_...
+export ASQAV_API_KEY=your-api-key
+export ASQAV_MODE=hash-only
 pi
 ```
 
-## Locking it per project
+The environment file sets the signing-error behavior. A separate startup default
+blocks model tool calls when the extension cannot initialize, including a missing
+key. `ASQAV_FAIL_OPEN=true` or `ASQAV_FAIL_CLOSED=false` opts out of that startup
+block. Observation mode allows policy refusals but still follows the signing-error
+setting. See the [decision table and data handling](../README.md).
 
-To pin the governance into a shared project, commit `.pi/settings.json`. Pi installs any
-missing packages automatically on startup once the project is trusted.
+## Project configuration
+
+Pi supports project package configuration in `.pi/settings.json`:
 
 ```json
 {
-  "packages": [
-    {
-      "source": "npm:@asqav/pi",
-      "extensions": ["extensions/*.ts"]
-    }
-  ]
+  "packages": ["git:github.com/jagmarques/asqav-pi"]
 }
 ```
 
-Replace the source with `npm:@asqav/pi@<version>` to lock a version. A template ships at
-the repo root in `.pi/settings.json`.
+Append `@<commit>` to select a fixed revision. Pi handles project trust and package
+loading; inspect its startup diagnostics to confirm that the extension loaded.
+The repository's `.pi/settings.json` provides this template.
 
-Note: Pi's `settings.json` has no field for environment variables, so the fail-closed env
-(`ASQAV_FAIL_CLOSED=true`) is set in the shell profile by the install script, not in
-`settings.json`.
+## Process boundaries
 
-## What `@asqav/pi` actually does today
+A global package installation does not force all Pi processes to load an extension.
+A subprocess can use another configuration directory, disable extensions or override
+a package through project settings. Shell profile files also need not be sourced by
+an automated process. Configure and check each process that must use the extension.
 
-The extension reads its configuration from the environment:
+The gate runs for model tool calls dispatched by that Pi process. It cannot prevent
+an extension from invoking code directly, a user from running shell commands, or a
+tool from carrying out more than one internal operation. It is not an operating
+system isolation boundary. End receipts record the tool name and error flag, not
+proof of every side effect.
 
-- `ASQAV_API_KEY` (required): the asqav API key. **Without it the extension fails closed
-  by default and blocks every tool call** (set `ASQAV_FAIL_OPEN=true` to run ungoverned).
-- `ASQAV_AGENT_NAME` (optional): the agent name on receipts, default `pi`.
-- `ASQAV_OBSERVE_ONLY=true` (optional): sign every tool call, never block (only once init
-  succeeds; an init failure still fails closed unless `ASQAV_FAIL_OPEN=true`).
-- `ASQAV_FAIL_CLOSED=true` (optional): block the tool when signing is unreachable
-  mid-session. That mid-session default is fail-open so a transient outage never breaks a
-  working agent; init failure is a separate axis that fails closed by default. A real
-  policy deny blocks regardless of this flag.
-- `ASQAV_FAIL_OPEN=true` (or `ASQAV_FAIL_CLOSED=false`): deliberate opt-out that restores
-  the old inactive/allow behavior when the extension cannot initialize.
+## Pi documentation
 
-The distribution sets `ASQAV_FAIL_CLOSED=true` to turn the unreachable case into a block.
-
-## The one guarantee and its one caveat
-
-Guarantee: with `ASQAV_API_KEY` set and `ASQAV_FAIL_CLOSED=true`, every model tool call
-in every Pi process is signed before it runs. A policy deny blocks the tool, and an
-unreachable asqav blocks it too. Because the install is global, the same holds inside
-spawned sub-agent processes.
-
-Caveat: the guarantee depends on the **global** install reaching every process. A
-project-only install does not govern sub-agent processes that read global settings. A
-missing `ASQAV_API_KEY` no longer disables the extension; by default it fails closed and
-blocks every tool call (opt out with `ASQAV_FAIL_OPEN=true`).
-
-## Fail-closed on init failure (shipped)
-
-The extension is fail-closed by default when it cannot initialize: a missing
-`ASQAV_API_KEY` or a failed agent startup blocks every tool call instead of running Pi
-ungoverned. This is independent of the mid-session `ASQAV_FAIL_CLOSED` signing-transport
-flag. Set `ASQAV_FAIL_OPEN=true` (or `ASQAV_FAIL_CLOSED=false`) to deliberately opt out
-and restore the old inactive/allow behavior. Covered by `tests/init-failclosed.test.ts`.
-
-## Sources
-
-- Global extension discovery `~/.pi/agent/extensions/*.ts`: https://pi.dev/docs/latest/extensions
-- Global vs project install, `pi install`, auto-install on trust, `packages` schema: https://pi.dev/docs/latest/packages
-- `settings.json` top-level fields (no `env` field): https://pi.dev/docs/latest/settings
-- Upstream Pi install command and `~/.pi/agent/` layout: https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/README.md
-- tool_call single-gate determinism analysis: `.company/research/pi-toolcall-coverage.md` and `.company/research/asqav-pi-fork-vs-extension.md`
-- Env vars honored by the extension: `extensions/asqav.ts` (the `asqavExtension` default export)
+- [Extension events and loading](https://pi.dev/docs/latest/extensions)
+- [Package installation and project configuration](https://pi.dev/docs/latest/packages)
+- [Settings](https://pi.dev/docs/latest/settings)
